@@ -95,6 +95,73 @@ class DataModuleProcess(pl.LightningDataModule):
         tst_data_scaled[cont_vars] = scaler.transform(tst_data[cont_vars])
         return tr_data_scaled
 
+
+
+
+
+class Encoder(nn.Module):
+
+    def __init__(self, **hparams):
+        super().__init__()
+
+        self.hparams = Namespace(**hparams)
+        self.fc1 = nn.Linear(self.hparams.input_dim ,self.hparams.h_dim )
+        self.fc2 = nn.Linear(self.hparams.h_dim , self.hparams.h_dim2)
+        self.fc3  = nn.Linear(self.hparams.h_dim2, self.hparams.h_dim3)
+
+        self.mu = nn.Linear(self.hparams.h_dim3, self.hparams.z_dim)
+        self.log_var = nn.Linear(self.hparams.h_dim3, self.hparams.z_dim)
+        self.relu = nn.ReLU()
+    def forward(self,x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
+        mu = self.mu(x)
+        log_var = self.log_var(x)
+        sigma = torch.randn(mu.shape[0],1)
+
+
+        return mu, log_var ,x
+
+class Decoder(nn.Module):
+
+    def __init__(self, **hparams):
+        super().__init__()
+
+        self.hparams = Namespace(**hparams)
+        self.fc1 = nn.Linear(self.hparams.z_dim ,self.hparams.h_dim3 )
+        self.fc2 = nn.Linear(self.hparams.h_dim3 , self.hparams.h_dim2)
+        self.fc3  = nn.Linear(self.hparams.h_dim2, self.hparams.h_dim1)
+
+        self.ouput = nn.Linear(self.hparams.h_dim1, self.hparams.input_dim)
+        self.relu = nn.ReLU()
+    def forward(self,z):
+        z = self.relu(self.fc1(z))
+        z = self.relu(self.fc2(z))
+        z = self.relu(self.fc3(z))
+        out = self.ouput(z)
+        return out
+
+
+class VariationalEncoders(pl.LightningModule):
+    def __init__(self,**hparams):
+        super().__init__()
+        self.save_hyperparameters()
+        self.encoder = Encoder(**hparams)
+        self.decoder = Decoder(**hparams)
+    def reparametrize(self,mu,log_var):
+        std = torch.exp(0.5 * log_var)
+        eps = torch.randn_like(std) * self.hparams.stdev
+        z = eps * std + mu
+        return z
+    def forward(self,x):
+        mu , log_var ,x = self.encoder(x)
+        z = self.reparameterize(mu, log_var)
+        output = self.decoder(z)
+        return output , mu,  log_var  , x
+    def lossfn(self,out , mu , log_var , x):
+        
 if __name__ == '__main__':
+
     obj = DataModuleProcess(data_path=data_path,data_root=data_root,batch_size=32)
     train_data = obj.ScalingData()
